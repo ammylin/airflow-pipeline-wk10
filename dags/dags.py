@@ -202,10 +202,13 @@ with DAG(
         for filename in os.listdir(folder_path):
             file_path = os.path.join(folder_path, filename)
             try:
+                # keep visualization & model files
+                if "analysis_plot.png" in file_path or "simple_model.pkl" in file_path:
+                    continue
                 if os.path.isfile(file_path) or os.path.islink(file_path):
                     os.remove(file_path)
                 elif os.path.isdir(file_path):
-                    if "raw" not in file_path:  # keep raw data
+                    if "raw" not in file_path:
                         shutil.rmtree(file_path)
             except Exception as e:
                 print(f"Failed to delete {file_path}: {e}")
