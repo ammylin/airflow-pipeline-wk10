@@ -1,6 +1,7 @@
 apache-airflow-providers-postgres
-Faker==37.12.0
 structlog==23.2.0
 psycopg2-binary
 pandas
 matplotlib
+scikit-learn
+joblib

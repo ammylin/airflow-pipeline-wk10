@@ -71,28 +71,43 @@ with DAG(
 
     @task()
     def load_csv_to_pg(conn_id: str, csv_path: str, table: str = "ecommerce_merged", append: bool = False) -> int:
-        # Only uses built-in modules and Airflow providers — no external libs needed
-        with open(csv_path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            fieldnames = reader.fieldnames
-            rows = [tuple((r.get(col, "") or None) for col in fieldnames) for r in reader]
+        import pandas as pd
 
-        if not rows:
+        df = pd.read_csv(csv_path)
+        if df.empty:
             print("No rows to insert.")
             return 0
 
+        # Ensure numeric types
+        if "delivery_hours" in df.columns:
+            df["delivery_hours"] = pd.to_numeric(df["delivery_hours"], errors="coerce")
+        if "review_score" in df.columns:
+            df["review_score"] = pd.to_numeric(df["review_score"], errors="coerce")
+
         schema = "assignment"
         create_schema = f"CREATE SCHEMA IF NOT EXISTS {schema};"
+        # Explicit column types
+        columns_sql = []
+        for col in df.columns:
+            if col in ["delivery_hours"]:
+                columns_sql.append(f'"{col}" DOUBLE PRECISION')
+            elif col in ["review_score"]:
+                columns_sql.append(f'"{col}" INTEGER')
+            else:
+                columns_sql.append(f'"{col}" TEXT')
         create_table = f"""
             CREATE TABLE IF NOT EXISTS {schema}.{table} (
-                {', '.join([f'"{col}" TEXT' for col in fieldnames])}
+                {', '.join(columns_sql)}
             );
         """
         delete_rows = f"DELETE FROM {schema}.{table};" if not append else None
+
         insert_sql = f"""
-            INSERT INTO {schema}.{table} ({', '.join([f'"{col}"' for col in fieldnames])})
-            VALUES ({', '.join(['%s' for _ in fieldnames])});
+            INSERT INTO {schema}.{table} ({', '.join([f'"{col}"' for col in df.columns])})
+            VALUES ({', '.join(['%s' for _ in df.columns])});
         """
+
+        rows = [tuple(r) for r in df.to_numpy()]
 
         hook = PostgresHook(postgres_conn_id=conn_id)
         conn = hook.get_conn()
@@ -120,14 +135,20 @@ with DAG(
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import accuracy_score
         import joblib
+        from airflow.providers.postgres.hooks.postgres import PostgresHook
 
         hook = PostgresHook(postgres_conn_id=conn_id)
         df = hook.get_pandas_df(f'SELECT "review_score", "delivery_hours" FROM assignment."{table}";')
 
-        df = df.dropna()
+        # Ensure numeric types
+        df["review_score"] = pd.to_numeric(df["review_score"], errors="coerce")
+        df["delivery_hours"] = pd.to_numeric(df["delivery_hours"], errors="coerce")
+        df = df.dropna(subset=["review_score", "delivery_hours"])
+        df["review_score"] = df["review_score"].astype(int)
+
         X = df[["delivery_hours"]]
         y = df["review_score"]
-        y_binary = (y > 3).astype(int)
+        y_binary = (y > 3).astype(int)  # now safe
 
         X_train, X_test, y_train, y_test = train_test_split(X, y_binary, test_size=0.2, random_state=42)
 
@@ -143,15 +164,24 @@ with DAG(
         print(f"Model saved to {model_path}")
         return f"Model accuracy: {acc:.2f}"
 
+
     @task()
     def perform_visualization(conn_id: str, table: str = "ecommerce_merged") -> str:
         import pandas as pd
         import matplotlib.pyplot as plt
+        from airflow.providers.postgres.hooks.postgres import PostgresHook
 
         hook = PostgresHook(postgres_conn_id=conn_id)
         df = hook.get_pandas_df(f'SELECT "review_score", "delivery_hours" FROM assignment."{table}";')
 
-        summary = df.groupby("review_score")["delivery_hours"].mean().reset_index()
+        # Ensure numeric types
+        df["review_score"] = pd.to_numeric(df["review_score"], errors="coerce")
+        df["delivery_hours"] = pd.to_numeric(df["delivery_hours"], errors="coerce")
+        df = df.dropna(subset=["review_score", "delivery_hours"])
+        df["review_score"] = df["review_score"].astype(int)
+
+        summary = df.groupby("review_score", as_index=False)["delivery_hours"].mean()
+        
         plt.figure(figsize=(8, 5))
         plt.bar(summary["review_score"], summary["delivery_hours"], color="steelblue")
         plt.title("Average Delivery Time by Review Score")
@@ -165,6 +195,7 @@ with DAG(
         plt.close()
         print(f"Visualization saved to {img_path}")
         return img_path
+
 
     @task()
     def clear_folder(folder_path: str = "/opt/airflow/data") -> None:
