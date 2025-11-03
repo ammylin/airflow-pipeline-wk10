@@ -22,8 +22,8 @@ The dataset has been anonymized, which makes it suitable for commercial analysis
 - **Data Flow**: Sequential with parallelizable components
 
 ### Data Sources
-1. **Orders Dataset**: Contains order transactions and timestamps.
-2. **Reviews Dataset**: Contains review scores associated with orders.
+1. **Orders Dataset** (`olist_orders_dataset.csv`): Contains order transactions and timestamps.
+2. **Reviews Dataset** (`olist_order_reviews_dataset.csv`): Contains review scores associated with orders.
 
 ## Pipeline Steps
 
